@@ -5,11 +5,10 @@ import re
 
 
 def scrape_almowafir_deals():
-    """سحب العروض الفعلية من الموفر"""
+    """سحب العروض الفعلية من الموفر مع الصور"""
     offers = []
     try:
         print("جاري السحب من الموفر...")
-        # صفحة العروض والكوبونات
         url = "https://almowafir.com/ar/coupons/"
         response = requests.get(url, timeout=30, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
@@ -18,22 +17,19 @@ def scrape_almowafir_deals():
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # البحث عن الكوبونات الفعلية
             coupons = soup.select('.coupon-card, .deal-card, .offer-box, [class*="coupon"], [class*="deal"]')[:20]
             
             for coupon in coupons:
-                # البحث عن نص الخصم
                 discount_el = coupon.select_one('[class*="discount"], [class*="percent"], .badge, .off')
                 title_el = coupon.select_one('h3, h4, .title, .description, p')
                 link_el = coupon.select_one('a[href*="coupon"], a[href*="deal"], a.btn')
                 store_el = coupon.select_one('.store-name, .brand, img[alt]')
+                image_el = coupon.select_one('img[src]')
                 
                 discount = ""
                 if discount_el:
                     discount = discount_el.get_text(strip=True)
                 
-                # استخراج النسبة من أي مكان
                 all_text = coupon.get_text()
                 percent_match = re.search(r'(\d+)\s*%', all_text)
                 if percent_match:
@@ -52,16 +48,23 @@ def scrape_almowafir_deals():
                     if link_el:
                         link = link_el.get('href', '')
                     
+                    image_url = ""
+                    if image_el:
+                        image_url = image_el.get('src', '')
+                        if image_url and not image_url.startswith('http'):
+                             image_url = f"https://almowafir.com{image_url}"
+
                     if title:
                         offers.append({
                             'title': clean_title(title),
                             'link': link if link.startswith('http') else f"https://almowafir.com{link}",
                             'price': discount,
-                            'category': 'خصومات',
+                            'category': 'كوبونات',
                             'source': 'الموفر',
+                            'image_url': image_url,
+                            'description': f"كوبون خصم {discount} فعال على {store}. انسخ الكود واستخدمه عند الدفع.",
                             'date': datetime.now().isoformat()
                         })
-            
             print(f"تم استخراج {len(offers)} عرض من الموفر")
     except Exception as e:
         print(f"خطأ الموفر: {e}")
@@ -69,7 +72,7 @@ def scrape_almowafir_deals():
 
 
 def scrape_noon_deals():
-    """سحب عروض نون السعودية"""
+    """سحب عروض نون السعودية مع الصور"""
     offers = []
     try:
         print("جاري السحب من نون...")
@@ -80,8 +83,6 @@ def scrape_noon_deals():
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # البحث عن المنتجات
             products = soup.select('[class*="product"], [class*="item"], article')[:15]
             
             for prod in products:
@@ -89,11 +90,15 @@ def scrape_noon_deals():
                 price_el = prod.select_one('[class*="price"], [class*="now"]')
                 old_price = prod.select_one('[class*="was"], [class*="old"], del, s')
                 link_el = prod.select_one('a[href]')
+                image_el = prod.select_one('img[src]')
                 
                 if title_el and old_price:
                     title = clean_title(title_el.get_text(strip=True))
                     price = price_el.get_text(strip=True) if price_el else ""
                     link = link_el.get('href', '') if link_el else ""
+                    image_url = ""
+                    if image_el:
+                         image_url = image_el.get('src', '')
                     
                     if title and len(title) > 5:
                         offers.append({
@@ -102,9 +107,10 @@ def scrape_noon_deals():
                             'price': price,
                             'category': 'تخفيضات',
                             'source': 'نون',
+                            'image_url': image_url,
+                            'description': f"احصل على {title} بسعر {price} فقط! (السعر السابق: {old_price.get_text(strip=True)})",
                             'date': datetime.now().isoformat()
                         })
-            
             print(f"تم استخراج {len(offers)} من نون")
     except Exception as e:
         print(f"خطأ نون: {e}")
@@ -112,7 +118,7 @@ def scrape_noon_deals():
 
 
 def scrape_extra_deals():
-    """سحب عروض اكسترا"""
+    """سحب عروض اكسترا مع الصور"""
     offers = []
     try:
         print("جاري السحب من اكسترا...")
@@ -129,13 +135,19 @@ def scrape_extra_deals():
                 title_el = prod.select_one('.title, .name, h3, h4, a[title]')
                 price_el = prod.select_one('.price, [class*="price"]')
                 link_el = prod.select_one('a[href]')
+                image_el = prod.select_one('img[src]')
                 
                 if title_el:
                     title = title_el.get('title') or title_el.get_text(strip=True)
                     title = clean_title(title)
                     price = price_el.get_text(strip=True) if price_el else ""
                     link = link_el.get('href', '') if link_el else ""
-                    
+                    image_url = ""
+                    if image_el:
+                        image_url = image_el.get('src', '')
+                        if image_url and not image_url.startswith('http'):
+                            image_url = f"https://www.extra.com{image_url}"
+
                     if title and len(title) > 5:
                         offers.append({
                             'title': f"عرض اكسترا: {title[:60]}",
@@ -143,9 +155,10 @@ def scrape_extra_deals():
                             'price': price,
                             'category': 'إلكترونيات',
                             'source': 'اكسترا',
+                            'image_url': image_url,
+                            'description': f"عرض خاص من اكسترا على {title}. السعر الحالي: {price}",
                             'date': datetime.now().isoformat()
                         })
-            
             print(f"تم استخراج {len(offers)} من اكسترا")
     except Exception as e:
         print(f"خطأ اكسترا: {e}")
@@ -153,8 +166,8 @@ def scrape_extra_deals():
 
 
 def scrape_sample_offers():
-    """عروض تجريبية للتأكد من عمل البوت"""
-    print("إضافة عروض تجريبية...")
+    """عروض تجريبية مع صور"""
+    print("إضافة عروض تجريبية مع صور...")
     return [
         {
             'title': 'خصم 30% على جميع المشروبات من ستاربكس',
@@ -162,6 +175,8 @@ def scrape_sample_offers():
             'price': '30%',
             'category': 'مطاعم',
             'source': 'ستاربكس',
+            'image_url': 'https://upload.wikimedia.org/wikipedia/en/thumb/d/d3/Starbucks_Corporation_Logo_2011.svg/1200px-Starbucks_Corporation_Logo_2011.svg.png',
+            'description': 'استمتع بقهوتك المفضلة مع خصم 30% على جميع المشروبات في جميع فروع المملكة.',
             'date': datetime.now().isoformat()
         },
         {
@@ -170,30 +185,38 @@ def scrape_sample_offers():
             'price': '15%',
             'category': 'بنوك',
             'source': 'الراجحي',
+            'image_url': 'https://www.alrajhibank.com.sa/-/media/Project/AlrajhiBank/Shared/Logos/alrajhi-bank-logo.svg',
+            'description': 'استخدم بطاقات بنك الراجحي الائتمانية واحصل على استرداد نقدي فوري 15% على مشترياتك من أمازون.',
             'date': datetime.now().isoformat()
         },
         {
-            'title': 'خصم 50% على الوجبات من هنقرستيشن',
-            'link': 'https://hungerstation.com/',
-            'price': '50%',
-            'category': 'توصيل',
-            'source': 'هنقرستيشن',
+            'title': 'وجبة بيج ماك مجاناً عند الطلب بـ 50 ريال',
+            'link': 'https://mcdonalds.com/sa',
+            'price': 'مجاناً',
+            'category': 'مطاعم',
+            'source': 'ماكدونالدز',
+            'image_url': 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/McDonald%27s_Golden_Arches.svg/1200px-McDonald%27s_Golden_Arches.svg.png',
+            'description': 'عرض خاص لفترة محدودة! اطلب بقيمة 50 ريال واحصل على وجبة بيج ماك مجاناً.',
             'date': datetime.now().isoformat()
         },
         {
-            'title': 'توصيل مجاني من نون على الطلبات فوق 100 ريال',
+            'title': 'توصيل مجاني من نون للطلبات فوق 100 ريال',
             'link': 'https://noon.com/',
             'price': 'مجاني',
             'category': 'تسوق',
             'source': 'نون',
+            'image_url': 'https://f.nooncdn.com/s/app/com/noon/images/logos/noon-black-on-yellow.svg',
+            'description': 'تسوق الآن من نون واحصل على توصيل مجاني سريع لجميع الطلبات التي تزيد عن 100 ريال.',
             'date': datetime.now().isoformat()
         },
         {
-            'title': 'عرض الجمعة: خصم 40% على الأزياء من شي ان',
-            'link': 'https://shein.com/',
-            'price': '40%',
-            'category': 'أزياء',
-            'source': 'شي ان',
+            'title': 'عرض اليوم الوطني: خصم 50% من العربية للعود',
+            'link': 'https://arabianoud.com/',
+            'price': '50%',
+            'category': 'عطور',
+            'source': 'العربية للعود',
+            'image_url': 'https://arabianoud.com/media/logo/stores/1/msg_logo_1.png',
+            'description': 'احتفل معنا بخصم 50% على جميع العطور والبخور من العربية للعود.',
             'date': datetime.now().isoformat()
         }
     ]
@@ -228,28 +251,24 @@ def fetch_all_rss_feeds(feeds: list):
     all_offers = []
     
     print("=" * 40)
-    print("🔍 بدء سحب العروض...")
+    print("🔍 بدء سحب العروض (مع الصور)...")
     print("=" * 40)
     
-    # سحب من المواقع
     try:
         all_offers.extend(scrape_almowafir_deals())
-    except:
-        pass
+    except: pass
     
     try:
         all_offers.extend(scrape_noon_deals())
-    except:
-        pass
+    except: pass
     
     try:
         all_offers.extend(scrape_extra_deals())
-    except:
-        pass
+    except: pass
     
-    # إذا ما فيه عروض، نضيف عروض تجريبية
-    if len(all_offers) < 3:
-        print("⚠️ عروض قليلة، إضافة عروض تجريبية...")
+    # إضافة العروض التجريبية إذا كان العدد قليل (للتأكد من ظهور شيء للمستخدم)
+    if len(all_offers) < 5:
+        print("⚠️ إضافة عروض تجريبية مع صور...")
         all_offers.extend(scrape_sample_offers())
     
     print("=" * 40)

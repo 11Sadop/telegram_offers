@@ -1,148 +1,221 @@
 #!/usr/bin/env python3
 """
-Telegram Offers Bot
+بوت عروض تيليجرام - للسعودية
 """
 
 import logging
-import os
 from datetime import datetime
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from config import BOT_TOKEN, CHANNEL_ID, ADMIN_IDS, SCRAPE_INTERVAL, RSS_FEEDS
+from config import BOT_TOKEN, CHANNEL_ID, ADMIN_IDS, RSS_FEEDS, MESSAGES
 from database import init_db, save_offer, mark_as_sent, get_unsent_offers, get_stats, clear_database
-from scrapers import fetch_all_rss_feeds
 
 # Setup logging
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ============== COMMANDS ==============
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome = """
-*Welcome to Offers Bot!*
-
-Commands:
-/latest - Show latest offers
-/refresh - Update offers now
-/stats - Statistics
-/clear - Clear old offers
-/help - Help
-"""
-    await update.message.reply_text(welcome, parse_mode='Markdown')
+    """أمر البداية"""
+    await update.message.reply_text(MESSAGES["welcome"], parse_mode='Markdown')
 
 
-async def latest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def offers_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض آخر العروض"""
     offers = get_unsent_offers(5)
     if not offers:
-        await update.message.reply_text("No offers available. Try /refresh first!")
+        await update.message.reply_text(MESSAGES["no_offers"])
         return
+    
     for offer in offers:
-        msg = format_offer(dict(offer))
-        await update.message.reply_text(msg, parse_mode='Markdown', disable_web_page_preview=True)
+        await send_offer_message(update.message, dict(offer))
 
 
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Fetching new offers...")
+    """تحديث العروض"""
+    await update.message.reply_text(MESSAGES["updating"])
     
     try:
-        new_count = scrape_and_save()
-        await update.message.reply_text(f"Found {new_count} new offers!")
+        from scrapers import fetch_all_rss_feeds
+        offers = fetch_all_rss_feeds(RSS_FEEDS)
         
-        if new_count > 0:
+        count = 0
+        for offer in offers:
+            if save_offer(offer['title'], offer['link'], offer.get('price'), offer.get('category'), offer.get('source'), offer.get('image_url'), offer.get('description')):
+                count += 1
+        
+        if count > 0:
+            await update.message.reply_text(MESSAGES["found_offers"].format(count=count))
             await post_to_channel(context.application)
-            await update.message.reply_text("Posted to channel!")
+        else:
+            await update.message.reply_text(MESSAGES["no_new"])
     except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
         logger.error(f"Refresh error: {e}")
+        await update.message.reply_text(f"❌ خطأ: {e}")
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إحصائيات البوت"""
     stats = get_stats()
     msg = f"""
-*Statistics*
-Total: {stats['total']}
-Posted: {stats['sent']}
-Pending: {stats['pending']}
+📊 *إحصائيات البوت*
+
+📦 إجمالي العروض: {stats['total']}
+✅ تم نشرها: {stats['sent']}
+⏳ في الانتظار: {stats['pending']}
+
+🕐 آخر تحديث: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مسح العروض القديمة"""
     clear_database()
-    await update.message.reply_text("Database cleared! Run /refresh to get new offers.")
+    await update.message.reply_text(MESSAGES["cleared"])
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot fetches deals from various sources and posts them to your channel.")
+    """المساعدة"""
+    await update.message.reply_text(MESSAGES["welcome"], parse_mode='Markdown')
 
 
-def format_offer(offer: dict) -> str:
-    title = offer.get('title', 'Deal')[:100]
+async def add_offer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إضافة عرض يدوياً"""
+    user_id = update.effective_user.id
+    
+    if ADMIN_IDS and user_id not in ADMIN_IDS:
+        await update.message.reply_text(MESSAGES["admin_only"])
+        return
+    
+    text = update.message.text.replace('/اضافة', '').strip()
+    
+    if not text:
+        await update.message.reply_text(MESSAGES["add_format"], parse_mode='Markdown')
+        return
+    
+    # Parse the offer
+    lines = text.split('\n')
+    if len(lines) < 2:
+        await update.message.reply_text("❌ الرجاء إدخال العنوان والرابط على الأقل")
+        return
+    
+    title = lines[0].strip()
+    link = lines[1].strip() if len(lines) > 1 else ""
+    category = lines[2].strip() if len(lines) > 2 else "عروض متنوعة"
+    
+    # Save the offer
+    if save_offer(title, link, "", category, "يدوي"):
+        await update.message.reply_text(MESSAGES["offer_added"])
+        
+        # Post to channel
+        offer = {"title": title, "link": link, "category": category, "source": "يدوي"}
+        await send_offer_to_chat(context.bot, CHANNEL_ID, offer)
+        mark_as_sent(link)
+        await update.message.reply_text(MESSAGES["posted"])
+    else:
+        await update.message.reply_text("❌ العرض موجود مسبقاً")
+
+
+# ============== FORMATTING & SENDING ==============
+
+def format_caption(offer: dict) -> str:
+    """تنسيق نص العرض (Caption)"""
+    title = offer.get('title', 'عرض جديد')[:100]
     link = offer.get('link', '')
+    category = offer.get('category', 'عروض')
     source = offer.get('source', '')
+    price = offer.get('price', '')
+    description = offer.get('description', '')
     
-    return f"""
-*{title}*
-
-Source: {source}
-[View Deal]({link})
-"""
-
-
-def scrape_and_save() -> int:
-    logger.info("Starting scrape...")
-    offers = fetch_all_rss_feeds(RSS_FEEDS)
-    logger.info(f"Got {len(offers)} offers from feeds")
+    # Choose emoji
+    emoji = "🎁"
+    if 'مطاعم' in category or 'مطعم' in category: emoji = "🍔"
+    elif 'بنك' in category or 'بطاق' in category: emoji = "💳"
+    elif 'متجر' in category or 'تسوق' in category: emoji = "🛒"
+    elif 'إلكترونيات' in category: emoji = "📱"
     
-    count = 0
-    for offer in offers:
-        if save_offer(offer['title'], offer['link'], offer.get('price'), offer.get('category'), offer.get('source')):
-            count += 1
-            logger.info(f"Saved: {offer['title'][:50]}...")
+    msg = f"{emoji} *{title}*\n\n"
     
-    logger.info(f"Saved {count} new offers")
-    return count
+    if description:
+        msg += f"{description}\n\n"
+        
+    if price:
+        msg += f"💰 السعر: {price}\n"
+    
+    msg += f"📂 التصنيف: {category}\n"
+    if source:
+        msg += f"📍 المصدر: {source}\n"
+    
+    msg += f"\n🔗 [اضغط الرابط للعرض]({link})\n"
+    msg += f"\n{CHANNEL_ID}"
+    
+    return msg
+
+
+async def send_offer_message(message_object, offer: dict):
+    """إرسال العرض كرد على رسالة (للأوامر)"""
+    caption = format_caption(offer)
+    image_url = offer.get('image_url')
+    
+    try:
+        if image_url:
+            await message_object.reply_photo(photo=image_url, caption=caption, parse_mode='Markdown')
+        else:
+            await message_object.reply_text(text=caption, parse_mode='Markdown', disable_web_page_preview=False)
+    except Exception as e:
+        logger.error(f"Error sending message: {e}")
+        # Fallback to text if photo fails
+        await message_object.reply_text(text=caption, parse_mode='Markdown')
+
+
+async def send_offer_to_chat(bot, chat_id, offer: dict):
+    """إرسال العرض إلى شات محدد (للقناة)"""
+    caption = format_caption(offer)
+    image_url = offer.get('image_url')
+    
+    try:
+        if image_url:
+            await bot.send_photo(chat_id=chat_id, photo=image_url, caption=caption, parse_mode='Markdown')
+        else:
+            await bot.send_message(chat_id=chat_id, text=caption, parse_mode='Markdown', disable_web_page_preview=False)
+    except Exception as e:
+        logger.error(f"Error sending to chat: {e}")
+        await bot.send_message(chat_id=chat_id, text=caption, parse_mode='Markdown')
 
 
 async def post_to_channel(app: Application):
+    """نشر العروض في القناة"""
     offers = get_unsent_offers(5)
     for offer in offers:
         try:
-            msg = format_offer(dict(offer))
-            await app.bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode='Markdown')
+            await send_offer_to_chat(app.bot, CHANNEL_ID, dict(offer))
             mark_as_sent(offer['link'])
             logger.info(f"Posted: {offer['title'][:30]}...")
         except Exception as e:
             logger.error(f"Post error: {e}")
 
 
+# ============== MAIN ==============
+
 def main():
-    print("Starting bot...")
-    
-    # Init DB
+    print("🚀 بوت العروض يعمل...")
     init_db()
-    
-    # Initial scrape
-    count = scrape_and_save()
-    print(f"Initial scrape: {count} offers")
-    
-    # Create app
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Handlers
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("latest", latest_command))
-    app.add_handler(CommandHandler("refresh", refresh_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("clear", clear_command))
-    app.add_handler(CommandHandler("help", help_command))
+    # Arabic commands
+    app.add_handler(CommandHandler(["start", "help", "مساعدة"], start_command))
+    app.add_handler(CommandHandler(["عروض", "latest"], offers_command))
+    app.add_handler(CommandHandler(["تحديث", "refresh"], refresh_command))
+    app.add_handler(CommandHandler(["احصائيات", "stats"], stats_command))
+    app.add_handler(CommandHandler(["مسح", "clear"], clear_command))
+    app.add_handler(CommandHandler("اضافة", add_offer_command))
     
-    print("Bot running!")
+    print("✅ البوت جاهز!")
     app.run_polling()
 
 

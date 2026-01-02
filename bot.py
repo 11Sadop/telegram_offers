@@ -79,11 +79,6 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(MESSAGES["cleared"])
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """المساعدة"""
-    await update.message.reply_text(MESSAGES["welcome"], parse_mode='Markdown')
-
-
 async def add_offer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إضافة عرض يدوياً"""
     user_id = update.effective_user.id
@@ -158,7 +153,7 @@ def format_caption(offer: dict) -> str:
 
 
 async def send_offer_message(message_object, offer: dict):
-    """إرسال العرض كرد على رسالة (للأوامر)"""
+    """إرسال العرض كرد على رسالة"""
     caption = format_caption(offer)
     image_url = offer.get('image_url')
     
@@ -169,12 +164,11 @@ async def send_offer_message(message_object, offer: dict):
             await message_object.reply_text(text=caption, parse_mode='Markdown', disable_web_page_preview=False)
     except Exception as e:
         logger.error(f"Error sending message: {e}")
-        # Fallback to text if photo fails
         await message_object.reply_text(text=caption, parse_mode='Markdown')
 
 
 async def send_offer_to_chat(bot, chat_id, offer: dict):
-    """إرسال العرض إلى شات محدد (للقناة)"""
+    """إرسال العرض إلى شات محدد"""
     caption = format_caption(offer)
     image_url = offer.get('image_url')
     
@@ -207,13 +201,22 @@ def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Arabic commands
-    app.add_handler(CommandHandler(["start", "help", "مساعدة"], start_command))
-    app.add_handler(CommandHandler(["عروض", "latest"], offers_command))
-    app.add_handler(CommandHandler(["تحديث", "refresh"], refresh_command))
-    app.add_handler(CommandHandler(["احصائيات", "stats"], stats_command))
-    app.add_handler(CommandHandler(["مسح", "clear"], clear_command))
-    app.add_handler(CommandHandler("اضافة", add_offer_command))
+    # English Commands
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", start_command))
+    app.add_handler(CommandHandler("latest", offers_command))
+    app.add_handler(CommandHandler("refresh", refresh_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(CommandHandler("add", add_offer_command))
+    
+    # Arabic Text Handlers (Regex)
+    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?عروض$'), offers_command))
+    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?تحديث$'), refresh_command))
+    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?احصائيات$'), stats_command))
+    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?مسح$'), clear_command))
+    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?مساعدة$'), start_command))
+    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?اضافة'), add_offer_command))
     
     print("✅ البوت جاهز!")
     app.run_polling()

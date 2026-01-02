@@ -87,9 +87,12 @@ async def add_offer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(MESSAGES["admin_only"])
         return
     
-    text = update.message.text.replace('/اضافة', '').strip()
-    if not text:
-        text = update.message.text.replace('اضافة', '').strip()
+    text = update.message.text
+    # Remove command part
+    for cmd in ['/اضافة', '/add', 'اضافة', 'add']:
+        if text.startswith(cmd):
+            text = text[len(cmd):].strip()
+            break
     
     if not text:
         await update.message.reply_text(MESSAGES["add_format"], parse_mode='Markdown')
@@ -135,6 +138,7 @@ def format_caption(offer: dict) -> str:
     elif 'بنك' in category or 'بطاق' in category: emoji = "💳"
     elif 'متجر' in category or 'تسوق' in category: emoji = "🛒"
     elif 'إلكترونيات' in category: emoji = "📱"
+    if 'خصومات' in category: emoji = "🏷️"
     
     msg = f"{emoji} *{title}*\n\n"
     
@@ -197,22 +201,28 @@ async def post_to_channel(app: Application):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة النصوص العربية"""
+    """معالجة كافة النصوص"""
     text = update.message.text
     if not text: return
 
-    # Check for commands in Arabic manually
-    if "عروض" in text or "latest" in text.lower():
+    # Check matches (with or without /)
+    # Using 'in' is risky for "add" vs "added", so we check startsWith or equality
+    t = text.lower().strip()
+    
+    if t.startswith('/'):
+        t = t[1:]
+        
+    if t in ['عروض', 'latest', 'sh']:
         await offers_command(update, context)
-    elif "تحديث" in text or "refresh" in text.lower():
+    elif t in ['تحديث', 'refresh', 'update']:
         await refresh_command(update, context)
-    elif "احصائيات" in text or "stats" in text.lower():
+    elif t in ['احصائيات', 'stats']:
         await stats_command(update, context)
-    elif "مسح" in text or "clear" in text.lower():
+    elif t in ['مسح', 'clear']:
         await clear_command(update, context)
-    elif "مساعدة" in text or "help" in text.lower():
+    elif t in ['مساعدة', 'help', 'start']:
         await start_command(update, context)
-    elif "اضافة" in text or "add" in text.lower():
+    elif t.startswith('اضافة') or t.startswith('add'):
         await add_offer_command(update, context)
 
 
@@ -221,13 +231,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     print("🚀 بوت العروض يعمل...")
     init_db()
+    
+    # Create App
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Standard Commands
+    # 1. Add specific CommandHandlers for English (Standard)
     app.add_handler(CommandHandler("start", start_command))
-    
-    # Catch-all text handler for Arabic commands
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CommandHandler("help", start_command))
+    app.add_handler(CommandHandler("latest", offers_command))
+    app.add_handler(CommandHandler("refresh", refresh_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(CommandHandler("add", add_offer_command))
+
+    # 2. Add Catch-All Text Handler (Handles everything else: Arabic, /Arabic, Typos, mixed)
+    app.add_handler(MessageHandler(filters.TEXT, handle_text))
     
     print("✅ البوت جاهز!")
     app.run_polling()

@@ -88,6 +88,8 @@ async def add_offer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     text = update.message.text.replace('/اضافة', '').strip()
+    if not text:
+        text = update.message.text.replace('اضافة', '').strip()
     
     if not text:
         await update.message.reply_text(MESSAGES["add_format"], parse_mode='Markdown')
@@ -194,6 +196,26 @@ async def post_to_channel(app: Application):
             logger.error(f"Post error: {e}")
 
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة النصوص العربية"""
+    text = update.message.text
+    if not text: return
+
+    # Check for commands in Arabic manually
+    if "عروض" in text or "latest" in text.lower():
+        await offers_command(update, context)
+    elif "تحديث" in text or "refresh" in text.lower():
+        await refresh_command(update, context)
+    elif "احصائيات" in text or "stats" in text.lower():
+        await stats_command(update, context)
+    elif "مسح" in text or "clear" in text.lower():
+        await clear_command(update, context)
+    elif "مساعدة" in text or "help" in text.lower():
+        await start_command(update, context)
+    elif "اضافة" in text or "add" in text.lower():
+        await add_offer_command(update, context)
+
+
 # ============== MAIN ==============
 
 def main():
@@ -201,22 +223,11 @@ def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # English Commands
+    # Standard Commands
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", start_command))
-    app.add_handler(CommandHandler("latest", offers_command))
-    app.add_handler(CommandHandler("refresh", refresh_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("clear", clear_command))
-    app.add_handler(CommandHandler("add", add_offer_command))
     
-    # Arabic Text Handlers (Regex)
-    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?عروض$'), offers_command))
-    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?تحديث$'), refresh_command))
-    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?احصائيات$'), stats_command))
-    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?مسح$'), clear_command))
-    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?مساعدة$'), start_command))
-    app.add_handler(MessageHandler(filters.Regex(r'^(?i)/?اضافة'), add_offer_command))
+    # Catch-all text handler for Arabic commands
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     print("✅ البوت جاهز!")
     app.run_polling()

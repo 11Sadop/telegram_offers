@@ -5,43 +5,34 @@ import re
 
 
 def fetch_rss_offers(feed_url: str, feed_name: str, category: str):
-    """Fetch offers from an RSS feed"""
+    """Fetch offers from RSS feed"""
     offers = []
-    
     try:
-        print(f"Fetching from {feed_name}...")
+        print(f"جاري السحب من {feed_name}...")
         response = requests.get(feed_url, timeout=30, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
         if response.status_code != 200:
-            print(f"Failed to fetch {feed_name}: {response.status_code}")
+            print(f"فشل السحب من {feed_name}: {response.status_code}")
             return offers
         
-        # Parse HTML/XML with BeautifulSoup
         soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Find all items
         items = soup.find_all('item')
-        print(f"Found {len(items)} items")
+        print(f"وجدت {len(items)} عنصر")
         
         for item in items[:15]:
-            # Get title
             title_tag = item.find('title')
             title = title_tag.get_text(strip=True) if title_tag else ''
             
-            # Get link
             link_tag = item.find('link')
             link = ''
             if link_tag:
-                # Link might be text or next sibling
                 link = link_tag.get_text(strip=True)
                 if not link and link_tag.next_sibling:
                     link = str(link_tag.next_sibling).strip()
             
-            # Clean title
             title = clean_title(title)
-            
             if title and link:
                 offers.append({
                     'title': title,
@@ -52,19 +43,142 @@ def fetch_rss_offers(feed_url: str, feed_name: str, category: str):
                     'date': datetime.now().isoformat()
                 })
         
-        print(f"Extracted {len(offers)} offers from {feed_name}")
-        
+        print(f"تم استخراج {len(offers)} عرض من {feed_name}")
     except Exception as e:
-        print(f"Error fetching {feed_name}: {e}")
-    
+        print(f"خطأ في {feed_name}: {e}")
+    return offers
+
+
+def scrape_alcoupon():
+    """سحب العروض من موقع الكوبون السعودي"""
+    offers = []
+    try:
+        print("جاري السحب من الكوبون...")
+        url = "https://www.alcoupon.com/ar-sa/"
+        response = requests.get(url, timeout=30, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'ar,en;q=0.9'
+        })
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Find coupon cards
+            cards = soup.select('.coupon-card, .deal-card, .offer-item, article')[:20]
+            
+            for card in cards:
+                title_el = card.select_one('h2, h3, .title, .coupon-title')
+                link_el = card.select_one('a')
+                discount_el = card.select_one('.discount, .percent, .off')
+                
+                if title_el:
+                    title = clean_title(title_el.get_text(strip=True))
+                    link = link_el.get('href', '') if link_el else ''
+                    discount = discount_el.get_text(strip=True) if discount_el else ''
+                    
+                    if title and len(title) > 5:
+                        offers.append({
+                            'title': f"{title} {discount}".strip(),
+                            'link': link if link.startswith('http') else f"https://www.alcoupon.com{link}",
+                            'price': discount,
+                            'category': 'كوبونات',
+                            'source': 'الكوبون',
+                            'date': datetime.now().isoformat()
+                        })
+            
+            print(f"تم استخراج {len(offers)} عرض من الكوبون")
+    except Exception as e:
+        print(f"خطأ في الكوبون: {e}")
+    return offers
+
+
+def scrape_coupon_sa():
+    """سحب العروض من coupon.sa"""
+    offers = []
+    try:
+        print("جاري السحب من coupon.sa...")
+        url = "https://coupon.sa/"
+        response = requests.get(url, timeout=30, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Find offers
+            items = soup.select('.coupon, .deal, .offer, article, .card')[:20]
+            
+            for item in items:
+                title_el = item.select_one('h2, h3, h4, .title')
+                link_el = item.select_one('a')
+                
+                if title_el:
+                    title = clean_title(title_el.get_text(strip=True))
+                    link = link_el.get('href', '') if link_el else ''
+                    
+                    if title and len(title) > 5:
+                        offers.append({
+                            'title': title,
+                            'link': link if link.startswith('http') else f"https://coupon.sa{link}",
+                            'price': extract_price(title),
+                            'category': 'تخفيضات',
+                            'source': 'كوبون السعودية',
+                            'date': datetime.now().isoformat()
+                        })
+            
+            print(f"تم استخراج {len(offers)} عرض من coupon.sa")
+    except Exception as e:
+        print(f"خطأ في coupon.sa: {e}")
+    return offers
+
+
+def scrape_otlob_coupon():
+    """سحب من أطلب كوبون"""
+    offers = []
+    try:
+        print("جاري السحب من أطلب كوبون...")
+        url = "https://otlobcoupon.com/"
+        response = requests.get(url, timeout=30, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            items = soup.select('.coupon-item, .offer, article, .post')[:15]
+            
+            for item in items:
+                title_el = item.select_one('h2, h3, .title, .entry-title')
+                link_el = item.select_one('a')
+                
+                if title_el:
+                    title = clean_title(title_el.get_text(strip=True))
+                    link = link_el.get('href', '') if link_el else ''
+                    
+                    if title and len(title) > 5:
+                        offers.append({
+                            'title': title,
+                            'link': link,
+                            'price': extract_price(title),
+                            'category': 'كوبونات',
+                            'source': 'أطلب كوبون',
+                            'date': datetime.now().isoformat()
+                        })
+            
+            print(f"تم استخراج {len(offers)} من أطلب كوبون")
+    except Exception as e:
+        print(f"خطأ في أطلب كوبون: {e}")
     return offers
 
 
 def extract_price(text: str) -> str:
-    """Extract price from text"""
+    """استخراج السعر أو نسبة الخصم"""
     if not text:
         return ""
-    patterns = [r'\$[\d,]+\.?\d*', r'[\d,]+\s*(?:USD|SAR)']
+    patterns = [
+        r'\d+%',  # نسبة مئوية
+        r'\d+\s*(?:ريال|ر\.س|SAR)',  # ريال
+        r'\$\d+',  # دولار
+    ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
@@ -73,35 +187,49 @@ def extract_price(text: str) -> str:
 
 
 def clean_title(title: str) -> str:
-    """Clean title for Telegram"""
+    """تنظيف العنوان"""
     if not title:
         return ""
-    # Remove HTML
     title = re.sub(r'<[^>]+>', '', title)
-    # Remove problematic chars
     for char in ['*', '_', '`', '[', ']']:
         title = title.replace(char, '')
-    # Clean whitespace
     title = ' '.join(title.split())
-    # Limit length
     if len(title) > 120:
         title = title[:117] + "..."
     return title
 
 
-def fetch_webpage_offers(url: str, selectors: dict):
-    """Scrape offers from webpage"""
-    return []
-
-
 def fetch_all_rss_feeds(feeds: list):
-    """Fetch from all feeds"""
+    """سحب كل العروض"""
     all_offers = []
+    
+    # RSS feeds
     for feed in feeds:
         try:
             offers = fetch_rss_offers(feed['url'], feed['name'], feed['category'])
             all_offers.extend(offers)
         except Exception as e:
-            print(f"Error with {feed['name']}: {e}")
-    print(f"Total: {len(all_offers)} offers")
+            print(f"خطأ: {e}")
+    
+    # Saudi coupon sites
+    try:
+        all_offers.extend(scrape_alcoupon())
+    except Exception as e:
+        print(f"خطأ الكوبون: {e}")
+    
+    try:
+        all_offers.extend(scrape_coupon_sa())
+    except Exception as e:
+        print(f"خطأ coupon.sa: {e}")
+    
+    try:
+        all_offers.extend(scrape_otlob_coupon())
+    except Exception as e:
+        print(f"خطأ أطلب كوبون: {e}")
+    
+    print(f"إجمالي العروض: {len(all_offers)}")
     return all_offers
+
+
+def fetch_webpage_offers(url: str, selectors: dict):
+    return []

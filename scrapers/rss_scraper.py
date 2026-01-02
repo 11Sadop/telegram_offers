@@ -19,33 +19,47 @@ def fetch_rss_offers(feed_url: str, feed_name: str, category: str):
             print(f"Failed to fetch {feed_name}: {response.status_code}")
             return offers
         
-        # Parse XML
-        root = ET.fromstring(response.content)
+        # Parse as BeautifulSoup for better XML handling
+        soup = BeautifulSoup(response.content, 'xml')
         
-        # Find all items (works for both RSS and Atom feeds)
-        items = root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
+        # Find all items
+        items = soup.find_all('item')
+        
+        if not items:
+            # Try Atom format
+            items = soup.find_all('entry')
+        
+        print(f"Found {len(items)} items from {feed_name}")
         
         for item in items[:20]:  # Get latest 20 entries
-            # Try to get title
-            title_el = item.find('title') or item.find('{http://www.w3.org/2005/Atom}title')
-            title = title_el.text if title_el is not None else 'New Offer'
+            # Get title
+            title_tag = item.find('title')
+            title = title_tag.get_text(strip=True) if title_tag else 'New Offer'
             
-            # Try to get link
-            link_el = item.find('link') or item.find('{http://www.w3.org/2005/Atom}link')
-            if link_el is not None:
-                link = link_el.text or link_el.get('href', '')
+            # Get link
+            link_tag = item.find('link')
+            if link_tag:
+                link = link_tag.get_text(strip=True) or link_tag.get('href', '')
             else:
                 link = ''
             
-            # Try to get description for price extraction
-            desc_el = item.find('description') or item.find('{http://www.w3.org/2005/Atom}summary')
-            description = desc_el.text if desc_el is not None else ''
+            # Get description for price extraction
+            desc_tag = item.find('description') or item.find('summary') or item.find('content')
+            description = ''
+            if desc_tag:
+                # Clean HTML from description
+                desc_soup = BeautifulSoup(desc_tag.get_text(), 'html.parser')
+                description = desc_soup.get_text(strip=True)[:500]
             
             # Extract price
-            price = extract_price(title + ' ' + (description or ''))
+            price = extract_price(title + ' ' + description)
             
             # Clean the title
             title = clean_title(title)
+            
+            # Skip if no valid title or link
+            if title == 'New Offer' and not link:
+                continue
             
             offers.append({
                 'title': title,
@@ -56,10 +70,12 @@ def fetch_rss_offers(feed_url: str, feed_name: str, category: str):
                 'date': datetime.now().isoformat()
             })
             
-        print(f"Fetched {len(offers)} offers from {feed_name}")
+        print(f"Fetched {len(offers)} valid offers from {feed_name}")
         
     except Exception as e:
         print(f"Error fetching {feed_name}: {e}")
+        import traceback
+        traceback.print_exc()
     
     return offers
 
@@ -72,8 +88,8 @@ def extract_price(text: str) -> str:
     # Look for common price patterns
     patterns = [
         r'\$[\d,]+\.?\d*',  # $XX.XX
-        r'[\d,]+\.?\d*\s*(?:USD|SAR|AED)',  # XX USD/SAR
-        r'(?:was|from|now)\s*\$?[\d,]+\.?\d*',  # was $XX
+        r'[\d,]+\.?\d*\s*(?:USD|SAR|AED|EUR|GBP)',  # XX USD/SAR
+        r'(?:was|from|now|price:?)\s*\$?[\d,]+\.?\d*',  # was $XX
     ]
     
     for pattern in patterns:
@@ -92,14 +108,20 @@ def clean_title(title: str) -> str:
     # Remove HTML tags
     title = re.sub(r'<[^>]+>', '', title)
     
+    # Decode HTML entities
+    title = title.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&#39;', "'").replace('&quot;', '"')
+    
     # Remove excessive whitespace
     title = ' '.join(title.split())
     
-    # Limit length
-    if len(title) > 200:
-        title = title[:197] + "..."
+    # Remove markdown special chars that break Telegram
+    title = title.replace('*', '').replace('_', '').replace('[', '(').replace(']', ')').replace('`', '')
     
-    return title
+    # Limit length
+    if len(title) > 150:
+        title = title[:147] + "..."
+    
+    return title if title else "New Offer"
 
 
 def fetch_webpage_offers(url: str, selectors: dict):
@@ -148,4 +170,5 @@ def fetch_all_rss_feeds(feeds: list):
         offers = fetch_rss_offers(feed['url'], feed['name'], feed['category'])
         all_offers.extend(offers)
     
+    print(f"Total offers fetched: {len(all_offers)}")
     return all_offers

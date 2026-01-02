@@ -1,141 +1,179 @@
 import os
 import requests
 from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, ImageOps
 import arabic_reshaper
 from bidi.algorithm import get_display
 import textwrap
 
-FONT_URL = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansArabic/NotoSansArabic-Bold.ttf"
-FONT_PATH = "arial_bold.ttf"  # We'll save it as this name to keep it simple or use Noto
+# نستخدم خط Tajawal لأنه جميل جداً في العناوين
+FONT_URL = "https://github.com/googlefonts/tajawal/raw/main/fonts/ttf/Tajawal-Bold.ttf"
+FONT_PATH = "Tajawal-Bold.ttf"
 
 def ensure_font_exists():
-    """تحميل خط عربي متوافق اذا لم يكن موجوداً"""
-    if not os.path.exists("NotoSansArabic-Bold.ttf"):
+    """تحميل خط عربي متوافق"""
+    if not os.path.exists(FONT_PATH):
         try:
-            print("Downloading font...")
-            response = requests.get(FONT_URL)
-            with open("NotoSansArabic-Bold.ttf", "wb") as f:
-                f.write(response.content)
-            print("Font downloaded.")
+            print(f"Downloading font from {FONT_URL}...")
+            response = requests.get(FONT_URL, timeout=10)
+            if response.status_code == 200:
+                with open(FONT_PATH, "wb") as f:
+                    f.write(response.content)
+                print("Font downloaded successfully.")
+            else:
+                print(f"Failed to download font: {response.status_code}")
         except Exception as e:
             print(f"Error downloading font: {e}")
 
 def get_font(size):
-    """تحميل الخط بالحجم المطلوب"""
+    """تحميل الخط بالحجم المطلوب مع Fallback"""
     ensure_font_exists()
     try:
-        return ImageFont.truetype("NotoSansArabic-Bold.ttf", size)
+        return ImageFont.truetype(FONT_PATH, size)
     except:
+        print("Falling back to default font (Arabic might be broken)")
         return ImageFont.load_default()
 
-def process_arabic_text(text):
-    """تهيئة النص العربي"""
-    if not text:
-        return ""
-    reshaped_text = arabic_reshaper.reshape(text)
-    bidi_text = get_display(reshaped_text)
-    return bidi_text
+def process_text(text):
+    """معالجة النص العربي"""
+    if not text: return ""
+    try:
+        reshaped_text = arabic_reshaper.reshape(text)
+        bidi_text = get_display(reshaped_text)
+        return bidi_text
+    except:
+        return text
 
-def wrap_text(text, width_chars):
-    """تقسيم النص الطويل إلى أسطر"""
+def wrap_text_arabic(text, width_chars):
+    """تقسيم النص العربي"""
     wrapper = textwrap.TextWrapper(width=width_chars)
-    word_list = wrapper.wrap(text=text)
-    return word_list
+    # ملاحظة: التفاف النص العربي قد يتطلب مكتبة متخصصة، لكن هذا تقريب جيد
+    return wrapper.wrap(text=text)
 
 def create_offer_image(image_url, title, price, store_name):
     """
-    إنشاء صورة مصممة للعرض بشكل احترافي
+    تصميم كارت العرض (Banner Style)
     """
     try:
-        # 1. إعداد القماش (Canvas)
-        width = 1080
-        height = 1080
-        # خلفية بيضاء نقية
-        base_image = Image.new('RGB', (width, height), '#FFFFFF')
-        draw = ImageDraw.Draw(base_image)
-
-        # 2. تحميل الخطوط
-        title_font = get_font(50)
-        price_font = get_font(60)
-        meta_font = get_font(40)
-
-        # 3. معالجة صورة المنتج
+        # الأبعاد
+        W, H = 1080, 1080
+        
+        # 1. الخلفية: لون موحد أنيق (Dark Blue-Grey)
+        bg_color = (33, 37, 41) # #212529 nice dark color
+        img = Image.new('RGB', (W, H), bg_color)
+        draw = ImageDraw.Draw(img)
+        
+        # 2. صورة المنتج (تأخذ 65% من المساحة العلوية)
         if image_url:
             try:
                 response = requests.get(image_url, timeout=10)
-                product_img = Image.open(BytesIO(response.content))
+                product = Image.open(BytesIO(response.content)).convert("RGB")
                 
-                # تصغير الصورة لتناسب المساحة (60% من الارتفاع)
-                target_h = 600
-                ratio = target_h / product_img.height
-                target_w = int(product_img.width * ratio)
+                # تغيير الحجم لملء العرض والحفاظ على النسبة
+                target_ratio = W / (H * 0.65)
+                img_ratio = product.width / product.height
                 
-                if target_w > 900: # Max width limit
-                    target_w = 900
-                    ratio = target_w / product_img.width
-                    target_h = int(product_img.height * ratio)
+                if img_ratio > target_ratio:
+                    # صورة عريضة
+                    new_h = int(H * 0.65)
+                    new_w = int(new_h * img_ratio)
+                else:
+                    # صورة طويلة
+                    new_w = W
+                    new_h = int(new_w / img_ratio)
+                
+                product = product.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                
+                # القص (Center Crop)
+                left = (new_w - W) // 2
+                top = (new_h - int(H * 0.65)) // 2
+                right = (new_w + W) // 2
+                bottom = (new_h + int(H * 0.65)) // 2
+                
+                # إذا كانت الصورة أصغر من الخلفية، لا تقص، بل ضعها في الوسط بخلفية بيضاء
+                if new_w < W or new_h < int(H * 0.65):
+                    white_bg = Image.new('RGB', (W, int(H * 0.65)), (255, 255, 255))
+                    # Paste centered
+                    paste_x = (W - new_w) // 2
+                    paste_y = (int(H * 0.65) - new_h) // 2
+                    white_bg.paste(product, (paste_x, paste_y))
+                    img.paste(white_bg, (0, 0))
+                else:
+                    # Crop logic for larger images
+                    # For simplicity, let's just resize to fit width and paste top
+                    product = product.resize((W, int(product.height * (W/product.width)))) 
+                    img.paste(product, (0, 0))
 
-                product_img = product_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-                
-                # وضع الصورة في المنتصف العلوي
-                x_offset = (width - target_w) // 2
-                y_offset = 100
-                base_image.paste(product_img, (x_offset, y_offset))
-                
+                # Gradient Overlay at bottom of image for text readability
+                # (Optional, skipped for simplicity)
+
             except Exception as e:
-                print(f"Error loading image: {e}")
+                print(f"Image load error: {e}")
+                # Fallback pattern
+                pass
 
-        # 4. رسم الخلفية للنص (تدرج أو لون ثابت)
-        # مربع للنص في الأسفل
-        draw.rectangle((0, 750, width, height), fill='#F8F9FA')
-        draw.line((0, 750, width, 750), fill='#E9ECEF', width=2)
-
-        # 5. كتابة العنوان (مع التفاف النص)
-        # Reshape for Arabic logic
-        title_wrapped = wrap_text(title, 40) # Character width approx
-        current_h = 780
+        # 3. منطقة النص (الأسفل)
+        # مربع أبيض بحواف دائرية من الأعلى
+        text_area_h = int(H * 0.35)
+        text_bg = Image.new('RGBA', (W, text_area_h), (255, 255, 255, 255))
+        img.paste(text_bg, (0, H - text_area_h))
         
-        for line in title_wrapped:
-            line_ar = process_arabic_text(line)
-            # Center text
-            # bbox returns (left, top, right, bottom)
-            text_bbox = draw.textbbox((0, 0), line_ar, font=title_font)
-            text_w = text_bbox[2] - text_bbox[0]
-            draw.text(((width - text_w) / 2, current_h), line_ar, font=title_font, fill='#212529')
-            current_h += 70
-
-        # 6. كتابة السعر في شارة مميزة
-        if price:
-            # دائرة/بيضاوي للسعر على الصورة
-            price_text = process_arabic_text(price)
-            # قياس النص
-            p_bbox = draw.textbbox((0, 0), price_text, font=price_font)
-            p_w = p_bbox[2] - p_bbox[0]
+        # الخطوط
+        font_title = get_font(55)
+        font_meta = get_font(40)
+        font_price = get_font(50)
+        
+        # 4. كتابة العنوان (Align Right for Arabic)
+        title_ar = process_text(title)
+        lines = wrap_text_arabic(title_ar, 35)
+        
+        # حساب مكان النص (يمين)
+        start_y = H - text_area_h + 60
+        padding_right = 60
+        
+        for line in lines[:2]: # Max 2 lines
+            bbox = draw.textbbox((0, 0), line, font=font_title)
+            text_w = bbox[2] - bbox[0]
+            # Align Right: W - padding - text_w
+            draw.text((W - padding_right - text_w, start_y), line, font=font_title, fill=(33, 37, 41))
+            start_y += 80
             
-            # دائرة حمراء في الزاوية العلوية اليسرى
-            circle_x = 80
-            circle_y = 80
-            radius = max(p_w, 100) // 2 + 20
-            
-            draw.ellipse((circle_x, circle_y, circle_x + radius*2, circle_y + radius*2), fill='#DC3545')
-            draw.text((circle_x + radius - p_w/2, circle_y + radius - 30), price_text, font=price_font, fill='white')
-
-        # 7. اسم المتجر
+        # 5. السعر والمصدر
+        meta_y = H - 120
+        
+        # المصدر (يمين)
         if store_name:
-            store_text = process_arabic_text(f"🛍️ {store_name}")
-            s_bbox = draw.textbbox((0, 0), store_text, font=meta_font)
-            s_w = s_bbox[2] - s_bbox[0]
-            # أسفل الصورة
-            draw.text(((width - s_w) / 2, 980), store_text, font=meta_font, fill='#6C757D')
+            store_ar = process_text(f"🛍️ {store_name}")
+            bbox = draw.textbbox((0, 0), store_ar, font=font_meta)
+            text_w = bbox[2] - bbox[0]
+            draw.text((W - padding_right - text_w, meta_y), store_ar, font=font_meta, fill=(108, 117, 125)) # Gray
+            
+        # السعر (يسار - مميز)
+        if price:
+            price_ar = process_text(price)
+            # خلفية للسعر
+            p_bbox = draw.textbbox((0, 0), price_ar, font=font_price)
+            p_w = p_bbox[2] - p_bbox[0]
+            p_h = p_bbox[3] - p_bbox[1]
+            
+            # Left padding
+            start_x = 60
+            
+            # Draw tag background
+            draw.rounded_rectangle(
+                (start_x, meta_y - 10, start_x + p_w + 40, meta_y + p_h + 30),
+                radius=15,
+                fill=(220, 53, 69) # Red
+            )
+            
+            draw.text((start_x + 20, meta_y), price_ar, font=font_price, fill=(255, 255, 255))
 
-        # حفظ
+        # Output
         output = BytesIO()
-        base_image.save(output, format='JPEG', quality=90)
+        img.save(output, format='JPEG', quality=95)
         output.seek(0)
-        
         return output
-    
+
     except Exception as e:
-        print(f"Error creating image: {e}")
+        print(f"Design Error: {e}")
         return None

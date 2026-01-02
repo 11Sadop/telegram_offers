@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, JobQueue
 
 from config import (
     BOT_TOKEN, CHANNEL_ID, ADMIN_IDS, 
@@ -39,6 +39,7 @@ I collect the best deals automatically from:
 *Commands:*
 /latest - Latest offers
 /stats - Bot statistics
+/refresh - Update offers now
 /help - Help
 """
     
@@ -102,11 +103,7 @@ The bot:
 
 
 async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /refresh command - manually trigger scraping (admin only)"""
-    if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("Admin only command")
-        return
-    
+    """Handle /refresh command - manually trigger scraping"""
     await update.message.reply_text("Updating offers...")
     
     new_offers = scrape_and_save_offers()
@@ -120,7 +117,6 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def format_offer_message(offer: dict) -> str:
     """Format an offer into a Telegram message"""
     title = offer.get('title', 'New Offer')[:100]
-    # Escape markdown special characters
     title = title.replace('*', '').replace('_', '').replace('[', '').replace(']', '')
     
     return f"""
@@ -140,7 +136,6 @@ def scrape_and_save_offers() -> int:
     """Scrape offers from all sources and save to database"""
     logger.info("Starting to scrape offers...")
     
-    # Fetch from RSS feeds
     offers = fetch_all_rss_feeds(RSS_FEEDS)
     
     new_count = 0
@@ -161,7 +156,7 @@ def scrape_and_save_offers() -> int:
 
 async def post_offers_to_channel(app: Application):
     """Post unsent offers to the channel"""
-    offers = get_unsent_offers(5)  # Post 5 at a time
+    offers = get_unsent_offers(5)
     
     if not offers:
         logger.info("No new offers to post")
@@ -191,38 +186,23 @@ async def scheduled_scrape(context: ContextTypes.DEFAULT_TYPE):
 
 # ============== MAIN ==============
 
-async def post_init(app: Application):
-    """Run after bot starts"""
-    init_db()
-    logger.info("Bot initialized")
-    
-    # Initial scrape
-    scrape_and_save_offers()
-    
-    # Schedule regular scraping using job queue
-    app.job_queue.run_repeating(
-        scheduled_scrape,
-        interval=SCRAPE_INTERVAL * 60,  # Convert minutes to seconds
-        first=10  # First run after 10 seconds
-    )
-    logger.info(f"Scheduled scraping every {SCRAPE_INTERVAL} minutes")
-
-
 def main():
     """Start the bot"""
-    print("""
-    ========================================
-      Telegram Offers Bot
-      Bot is starting...
-    ========================================
-    """)
+    print("Telegram Offers Bot Starting...")
     
     if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         print("Error: Please add bot token in config.py")
         return
     
-    # Create application
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    # Initialize database
+    init_db()
+    
+    # Initial scrape
+    logger.info("Running initial scrape...")
+    scrape_and_save_offers()
+    
+    # Create application with job queue
+    app = Application.builder().token(BOT_TOKEN).build()
     
     # Add command handlers
     app.add_handler(CommandHandler("start", start_command))
@@ -231,8 +211,18 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     
+    # Schedule regular scraping if job_queue is available
+    if app.job_queue:
+        app.job_queue.run_repeating(
+            scheduled_scrape,
+            interval=SCRAPE_INTERVAL * 60,
+            first=60
+        )
+        logger.info(f"Scheduled scraping every {SCRAPE_INTERVAL} minutes")
+    else:
+        logger.warning("Job queue not available, use /refresh to update manually")
+    
     print("Bot is running!")
-    print("Press Ctrl+C to stop")
     
     # Run the bot
     app.run_polling(allowed_updates=Update.ALL_TYPES)

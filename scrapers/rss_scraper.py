@@ -2,283 +2,254 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 import re
+import json
 
 
-def clean_title(title: str) -> str:
-    if not title:
+def clean_text(text):
+    if not text:
         return ""
-    title = re.sub(r'<[^>]+>', '', title)
-    title = title.replace('*', '').replace('_', '')
-    title = ' '.join(title.split())
-    return title[:100] if title else ""
+    text = re.sub(r'<[^>]+>', '', str(text))
+    text = ' '.join(text.split())
+    return text[:200]
 
 
 def fetch_all_rss_feeds(feeds: list):
-    """سحب كل العروض"""
+    """سحب كل العروض الحقيقية"""
+    all_offers = []
+    
     print("=" * 50)
-    print("🚀 بدء سحب العروض...")
+    print("🚀 سحب الكوبونات الحقيقية...")
     print("=" * 50)
     
-    all_offers = get_curated_offers()
+    # 1. كوبونات الموفر
+    try:
+        offers = scrape_almowafir()
+        all_offers.extend(offers)
+        print(f"✅ الموفر: {len(offers)}")
+    except Exception as e:
+        print(f"❌ الموفر: {e}")
     
+    # 2. كوبون سعودي
+    try:
+        offers = scrape_couponsaudi()
+        all_offers.extend(offers)
+        print(f"✅ كوبون سعودي: {len(offers)}")
+    except Exception as e:
+        print(f"❌ كوبون سعودي: {e}")
+    
+    # 3. كوبون عربي
+    try:
+        offers = scrape_couponarabi()
+        all_offers.extend(offers)
+        print(f"✅ كوبون عربي: {len(offers)}")
+    except Exception as e:
+        print(f"❌ كوبون عربي: {e}")
+    
+    print("=" * 50)
     print(f"✅ إجمالي: {len(all_offers)}")
+    
     return all_offers
 
 
-def get_curated_offers():
-    """عروض منتقاة بتفاصيل كاملة"""
+def scrape_almowafir():
+    """سحب كوبونات حقيقية من الموفر"""
+    offers = []
     
-    offers = [
-        # ========== تطبيقات التوصيل ==========
-        {
-            'title': 'هنقرستيشن: خصم 25% على طلبك',
-            'link': 'https://hungerstation.com',
-            'price': '25%',
-            'category': '🛵 توصيل طعام',
-            'source': 'هنقرستيشن',
-            'image_url': '',
-            'description': '''🎉 كوبون خصم هنقرستيشن
-
-💰 نسبة الخصم: 25%
-📱 الكود: FIRST25
-⏰ صالح حتى: نهاية الشهر
-📍 متاح في: جميع المدن
-
-✅ الشروط:
-• صالح على الطلب الأول
-• الحد الأدنى 50 ريال
-• لا يشمل رسوم التوصيل''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'جاهز: خصم 15 ريال على طلبك',
-            'link': 'https://jahez.net',
-            'price': '15 ريال',
-            'category': '🛵 توصيل طعام',
-            'source': 'جاهز',
-            'image_url': '',
-            'description': '''🎉 كوبون خصم جاهز
-
-💰 قيمة الخصم: 15 ريال
-📱 الكود: JAHEZ15
-⏰ صالح حتى: نهاية الأسبوع
-📍 متاح في: الرياض، جدة، الدمام
-
-✅ الشروط:
-• الحد الأدنى للطلب 40 ريال
-• مرة واحدة لكل مستخدم''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'تويو: توصيل مجاني لمدة شهر',
-            'link': 'https://toyou.io',
-            'price': 'مجاني',
-            'category': '🛵 توصيل طعام',
-            'source': 'تويو',
-            'image_url': '',
-            'description': '''🎉 عرض تويو المميز
-
-💰 العرض: توصيل مجاني
-⏰ المدة: شهر كامل
-📱 الكود: FREESHIP
-
-✅ الشروط:
-• للمستخدمين الجدد
-• على جميع الطلبات''',
-            'date': datetime.now().isoformat()
-        },
-        
-        # ========== عروض البنوك ==========
-        {
-            'title': 'الراجحي: كاش باك 10% على أمازون',
-            'link': 'https://alrajhibank.com.sa',
-            'price': '10%',
-            'category': '💳 عروض بنكية',
-            'source': 'الراجحي',
-            'image_url': '',
-            'description': '''🏦 عرض بنك الراجحي
-
-💰 الكاش باك: 10%
-🛒 الموقع: أمازون السعودية
-💳 البطاقات المشمولة: جميع البطاقات الائتمانية
-
-✅ الشروط:
-• الحد الأقصى 200 ريال
-• حتى نفاد الكمية
-• للمشتريات أونلاين فقط''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'STC Pay: كاش باك 5% على المطاعم',
-            'link': 'https://stcpay.com.sa',
-            'price': '5%',
-            'category': '💳 عروض بنكية',
-            'source': 'STC Pay',
-            'image_url': '',
-            'description': '''📱 عرض STC Pay
-
-💰 الكاش باك: 5%
-🍔 على: جميع المطاعم
-⏰ أيام العرض: الخميس والجمعة
-
-✅ طريقة الاستخدام:
-• ادفع بـ STC Pay
-• الكاش باك يُضاف تلقائياً''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'الأهلي: خصم 15% على نون',
-            'link': 'https://www.alahli.com',
-            'price': '15%',
-            'category': '💳 عروض بنكية',
-            'source': 'الأهلي',
-            'image_url': '',
-            'description': '''🏦 عرض البنك الأهلي
-
-💰 الخصم: 15%
-🛒 الموقع: نون
-💳 البطاقات: Visa و Mastercard
-
-✅ الكود: AHLI15
-• الحد الأقصى 100 ريال''',
-            'date': datetime.now().isoformat()
-        },
-        
-        # ========== مواقع التسوق ==========
-        {
-            'title': 'نون: كوبون NM5 خصم 50 ريال',
-            'link': 'https://noon.com/saudi-ar/',
-            'price': '50 ريال',
-            'category': '🛒 تسوق أونلاين',
-            'source': 'نون',
-            'image_url': '',
-            'description': '''🟡 كوبون نون
-
-💰 قيمة الخصم: حتى 50 ريال
-📱 الكود: NM5
-⏰ صالح حتى: نهاية الشهر
-
-✅ الشروط:
-• الحد الأدنى 200 ريال
-• مرة واحدة لكل حساب
-• لا يشمل الإلكترونيات''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'أمازون: خصم 20% على الإلكترونيات',
-            'link': 'https://amazon.sa',
-            'price': '20%',
-            'category': '🛒 تسوق أونلاين',
-            'source': 'أمازون',
-            'image_url': '',
-            'description': '''📦 عرض أمازون السعودية
-
-💰 الخصم: حتى 20%
-📱 على: الإلكترونيات
-🚚 الشحن: مجاني لأعضاء Prime
-
-✅ المنتجات المشمولة:
-• سماعات
-• شواحن
-• اكسسوارات الجوال''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'شي إن: خصم 50 ريال للعملاء الجدد',
-            'link': 'https://shein.com',
-            'price': '50 ريال',
-            'category': '👗 أزياء',
-            'source': 'شي إن',
-            'image_url': '',
-            'description': '''👗 عرض شي إن
-
-💰 الخصم: 50 ريال
-📱 الكود: NEW50
-👤 للعملاء الجدد فقط
-
-✅ الشروط:
-• أول طلب فقط
-• الحد الأدنى 150 ريال''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'علي اكسبرس: خصم 10% إضافي',
-            'link': 'https://aliexpress.com',
-            'price': '10%',
-            'category': '🛒 تسوق أونلاين',
-            'source': 'علي اكسبرس',
-            'image_url': '',
-            'description': '''🌍 كوبون علي اكسبرس
-
-💰 الخصم: 10%
-📱 الكود: SAVE10
-🚚 الشحن: مجاني لبعض المنتجات
-
-✅ صالح على:
-• منتجات Choice
-• الطلبات فوق 100 ريال''',
-            'date': datetime.now().isoformat()
-        },
-        
-        # ========== المطاعم والكوفيهات ==========
-        {
-            'title': 'ستاربكس: اشتري 1 واحصل على 1 مجاناً',
-            'link': 'https://starbucks.sa',
-            'price': '1+1',
-            'category': '☕ كوفي',
-            'source': 'ستاربكس',
-            'image_url': '',
-            'description': '''☕ عرض ستاربكس
-
-💰 العرض: Buy 1 Get 1 Free
-⏰ الوقت: من 3 إلى 6 مساءً
-📍 الفروع: جميع الفروع
-
-✅ المشروبات المشمولة:
-• فرابتشينو
-• لاتيه
-• كابتشينو
-
-❌ لا يشمل المشروبات الباردة''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'ماكدونالدز: وجبة بيج ماك بـ 15 ريال',
-            'link': 'https://mcdonalds.sa',
-            'price': '15 ريال',
-            'category': '🍔 مطاعم',
-            'source': 'ماكدونالدز',
-            'image_url': '',
-            'description': '''🍔 عرض ماكدونالدز
-
-💰 السعر: 15 ريال فقط
-🍟 الوجبة: بيج ماك + بطاطس صغيرة + مشروب
-
-⏰ أيام العرض: الأحد والاثنين
-📍 الفروع: جميع الفروع
-
-✅ من خلال التطبيق فقط''',
-            'date': datetime.now().isoformat()
-        },
-        {
-            'title': 'دانكن: قهوة بـ 5 ريال',
-            'link': 'https://dunkindonuts.sa',
-            'price': '5 ريال',
-            'category': '☕ كوفي',
-            'source': 'دانكن',
-            'image_url': '',
-            'description': '''☕ عرض دانكن
-
-💰 السعر: 5 ريال
-🥤 الحجم: وسط
-⏰ الوقت: صباحاً من 6 إلى 10
-
-✅ جميع أنواع القهوة الساخنة''',
-            'date': datetime.now().isoformat()
-        },
+    # صفحات المتاجر المشهورة
+    stores = [
+        ("noon", "نون"),
+        ("amazon-sa", "أمازون"),
+        ("shein", "شي إن"),
+        ("namshi", "نمشي"),
+        ("hungerstation", "هنقرستيشن"),
+        ("jahez", "جاهز"),
+        ("talabat", "طلبات"),
+        ("aliexpress", "علي اكسبرس"),
     ]
     
-    print(f"📦 تم تحميل {len(offers)} عرض")
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
+        'Accept-Language': 'ar-SA,ar;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml'
+    }
+    
+    for slug, name in stores:
+        try:
+            url = f"https://almowafir.com/ar/stores/{slug}/"
+            resp = requests.get(url, headers=headers, timeout=15)
+            
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                
+                # البحث عن الكوبونات
+                # الموفر يستخدم data attributes للكودات
+                coupons = soup.find_all(['div', 'section'], class_=lambda x: x and ('coupon' in x.lower() or 'offer' in x.lower()))
+                
+                for coupon in coupons[:3]:
+                    # محاولة استخراج الكود
+                    code = None
+                    
+                    # 1. من data attribute
+                    code = coupon.get('data-code') or coupon.get('data-coupon')
+                    
+                    # 2. من عنصر داخلي
+                    if not code:
+                        code_el = coupon.find(class_=lambda x: x and 'code' in x.lower())
+                        if code_el:
+                            code = code_el.get_text(strip=True)
+                    
+                    # 3. من input
+                    if not code:
+                        code_input = coupon.find('input', {'type': 'text'})
+                        if code_input:
+                            code = code_input.get('value')
+                    
+                    # استخراج الوصف
+                    desc_el = coupon.find(['h3', 'h4', 'p', 'span'], class_=lambda x: x and ('title' in str(x).lower() or 'desc' in str(x).lower()))
+                    desc = desc_el.get_text(strip=True) if desc_el else ""
+                    
+                    # استخراج نسبة الخصم
+                    text = coupon.get_text()
+                    percent = re.search(r'(\d+)\s*%', text)
+                    discount = f"{percent.group(1)}%" if percent else "خصم"
+                    
+                    if code or desc:
+                        offers.append({
+                            'title': f"كوبون {name}: {clean_text(desc)[:50]}" if desc else f"كوبون {name}",
+                            'link': url,
+                            'price': code if code else discount,
+                            'category': 'كوبونات',
+                            'source': name,
+                            'image_url': '',
+                            'description': f"""🎫 *كوبون {name}*
+
+💰 الكود: *{code if code else 'اضغط للحصول على الكود'}*
+📊 الخصم: {discount}
+
+✅ طريقة الاستخدام:
+1. انسخ الكود
+2. اذهب للموقع
+3. الصق الكود عند الدفع
+
+🔗 رابط الموقع: {url}""",
+                            'date': datetime.now().isoformat()
+                        })
+                        
+        except Exception as e:
+            print(f"  خطأ {name}: {e}")
+            continue
+    
+    return offers
+
+
+def scrape_couponsaudi():
+    """سحب من موقع كوبون سعودي"""
+    offers = []
+    
+    try:
+        url = "https://www.couponsaudi.com/"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers, timeout=15)
+        
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            # البحث عن بطاقات الكوبونات
+            cards = soup.find_all(['div', 'article'], class_=lambda x: x and any(k in str(x).lower() for k in ['coupon', 'deal', 'offer', 'card']))
+            
+            for card in cards[:10]:
+                title = card.find(['h2', 'h3', 'h4'])
+                link = card.find('a')
+                
+                # البحث عن الكود
+                code_el = card.find(class_=lambda x: x and 'code' in str(x).lower())
+                code = code_el.get_text(strip=True) if code_el else None
+                
+                # البحث عن الخصم
+                text = card.get_text()
+                percent = re.search(r'(\d+)\s*%', text)
+                
+                if title:
+                    title_text = clean_text(title.get_text())
+                    offers.append({
+                        'title': title_text,
+                        'link': link.get('href', url) if link else url,
+                        'price': code if code else (f"{percent.group(1)}%" if percent else "خصم"),
+                        'category': 'كوبونات',
+                        'source': 'كوبون سعودي',
+                        'image_url': '',
+                        'description': f"🎫 {title_text}\n\n{'📋 الكود: ' + code if code else ''}\n\n✅ كوبون فعال من كوبون سعودي",
+                        'date': datetime.now().isoformat()
+                    })
+    except Exception as e:
+        print(f"خطأ كوبون سعودي: {e}")
+    
+    return offers
+
+
+def scrape_couponarabi():
+    """سحب من مواقع الكوبونات العربية"""
+    offers = []
+    
+    sites = [
+        "https://www.coupon.ae/ar/",
+        "https://www.alcoupon.com/ar/",
+    ]
+    
+    headers = {'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'ar'}
+    
+    for site_url in sites:
+        try:
+            resp = requests.get(site_url, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                
+                # البطاقات
+                cards = soup.find_all(['div', 'article'], limit=20)
+                
+                for card in cards:
+                    # فلترة البطاقات ذات الصلة
+                    text = card.get_text().lower()
+                    if not any(k in text for k in ['خصم', 'كوبون', 'كود', '%', 'offer', 'discount']):
+                        continue
+                    
+                    title = card.find(['h2', 'h3', 'h4', 'a'])
+                    if not title:
+                        continue
+                        
+                    title_text = clean_text(title.get_text())
+                    if len(title_text) < 5:
+                        continue
+                    
+                    # الخصم
+                    percent = re.search(r'(\d+)\s*%', card.get_text())
+                    
+                    # الكود
+                    code = None
+                    code_el = card.find(attrs={'data-clipboard-text': True})
+                    if code_el:
+                        code = code_el.get('data-clipboard-text')
+                    
+                    link = card.find('a')
+                    
+                    offers.append({
+                        'title': title_text[:60],
+                        'link': link.get('href', site_url) if link else site_url,
+                        'price': code if code else (f"{percent.group(1)}%" if percent else "خصم"),
+                        'category': 'كوبونات',
+                        'source': 'كوبون عربي',
+                        'image_url': '',
+                        'description': f"🎫 {title_text}\n\n✅ كوبون فعال",
+                        'date': datetime.now().isoformat()
+                    })
+                    
+                    if len(offers) >= 5:
+                        break
+                        
+        except Exception as e:
+            print(f"خطأ {site_url}: {e}")
+            continue
+    
     return offers
 
 

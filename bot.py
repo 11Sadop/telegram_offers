@@ -11,7 +11,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from config import BOT_TOKEN, CHANNEL_ID, ADMIN_IDS, RSS_FEEDS, MESSAGES, SCRAPE_INTERVAL
 from database import init_db, save_offer, mark_as_sent, get_unsent_offers, get_stats, clear_database
-from utils import create_offer_image  # Import image generator
+from utils import create_offer_image
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -19,6 +19,25 @@ logger = logging.getLogger(__name__)
 
 
 # ============== COMMANDS ==============
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فحص المصادر"""
+    await update.message.reply_text("🔍 جاري الفحص...")
+    results = []
+    try:
+        from scrapers.rss_scraper import scrape_almowafir_deals
+        r = scrape_almowafir_deals()
+        results.append(f"الموفر: {len(r)}")
+    except Exception as e:
+        results.append(f"الموفر خطأ: {e}")
+    try:
+        from scrapers.rss_scraper import scrape_delivery_apps
+        r = scrape_delivery_apps()
+        results.append(f"توصيل: {len(r)}")
+    except Exception as e:
+        results.append(f"توصيل خطأ: {e}")
+    await update.message.reply_text("\n".join(results) if results else "لا نتائج")
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أمر البداية"""
@@ -206,6 +225,15 @@ def main():
     
     # Handlers
     app.add_handler(CommandHandler("start", start_command))
+    
+    # --- DEBUG & ADMIN ---
+    app.add_handler(CommandHandler("debug", debug_command))
+    
+    # FORCE CLEAR ON STARTUP (Fix for "Nothing Changed")
+    # This ensures we start fresh every restart
+    clear_database()
+    print("🧹 Database force cleared on startup.")
+    
     app.add_handler(MessageHandler(filters.TEXT, handle_text))
     
     # Job Queue (Automation)

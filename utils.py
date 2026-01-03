@@ -1,142 +1,128 @@
 import os
 import requests
 from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-# Use Noto Sans Arabic (Standard, reliable)
+# Font
 FONT_URL = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansArabic/NotoSansArabic-Bold.ttf"
 FONT_FILE = "NotoSansArabic-Bold.ttf"
 
+
 def load_arabic_font(size):
-    """تحميل خط عربي بشكل آمن"""
+    """تحميل خط عربي"""
     if not os.path.exists(FONT_FILE):
         try:
-            print("Downloading Noto Sans Arabic...")
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(FONT_URL, headers=headers, timeout=15)
+            print("⬇️ تحميل الخط...")
+            resp = requests.get(FONT_URL, timeout=30)
             with open(FONT_FILE, "wb") as f:
-                f.write(response.content)
-            print("Font downloaded.")
+                f.write(resp.content)
+            print("✅ تم تحميل الخط")
         except Exception as e:
-            print(f"Font download failed: {e}")
+            print(f"❌ خطأ تحميل الخط: {e}")
             return ImageFont.load_default()
-    
     try:
         return ImageFont.truetype(FONT_FILE, size)
     except:
         return ImageFont.load_default()
 
+
 def process_text(text):
-    """
-    معالجة النص العربي:
-    1. Reshape (تشبيك الحروف)
-    2. Bidi (اتجاه النص)
-    """
+    """معالجة النص العربي"""
     if not text:
         return ""
     try:
         reshaped = arabic_reshaper.reshape(text)
-        bidi_text = get_display(reshaped)
-        return bidi_text
-    except Exception as e:
-        print(f"Text processing error: {e}")
+        return get_display(reshaped)
+    except:
         return text
 
-def create_offer_image(image_url, title, price, store_name):
+
+def create_offer_image(image_url, title, price, store_name, category=""):
     """تصميم صورة العرض"""
     try:
-        width, height = 1080, 1080
+        # أبعاد الصورة
+        width, height = 800, 600
         
-        # 1. الخلفية البيضاء
-        img = Image.new('RGB', (width, height), '#FFFFFF')
+        # ألوان حسب المصدر
+        colors = {
+            'نون': ('#FFEC00', '#000000'),      # أصفر نون
+            'أمازون': ('#FF9900', '#232F3E'),   # برتقالي أمازون
+            'هنقرستيشن': ('#FF5A5F', '#FFFFFF'), # أحمر
+            'جاهز': ('#00C853', '#FFFFFF'),      # أخضر
+            'الراجحي': ('#004D40', '#FFFFFF'),   # أخضر داكن
+            'ستاربكس': ('#00704A', '#FFFFFF'),   # أخضر ستاربكس
+            'STC Pay': ('#4A148C', '#FFFFFF'),   # بنفسجي
+        }
+        
+        # اختيار اللون
+        bg_color = '#1a1a2e'  # خلفية داكنة افتراضية
+        text_color = '#FFFFFF'
+        accent_color = '#e94560'  # أحمر وردي
+        
+        for key, (accent, txt) in colors.items():
+            if store_name and key in store_name:
+                accent_color = accent
+                break
+        
+        # إنشاء الصورة
+        img = Image.new('RGB', (width, height), bg_color)
         draw = ImageDraw.Draw(img)
         
-        # 2. صورة المنتج
-        if image_url:
-            try:
-                if not image_url.startswith('http'):
-                     # Handle relative URLs just in case
-                     pass
-                else:
-                    response = requests.get(image_url, timeout=10)
-                    product_img = Image.open(BytesIO(response.content)).convert("RGBA")
-                    
-                    # White background for product in case it has transparency
-                    bg_w, bg_h = product_img.size
-                    background = Image.new('RGBA', (bg_w, bg_h), (255, 255, 255, 255))
-                    product_img = Image.alpha_composite(background, product_img).convert("RGB")
-                    
-                    # Resize logic
-                    max_h = 600
-                    ratio = max_h / product_img.height
-                    new_w = int(product_img.width * ratio)
-                    new_h = int(product_img.height * ratio)
-                    
-                    if new_w > 900:
-                        new_w = 900
-                        ratio = new_w / product_img.width
-                        new_h = int(product_img.height * ratio)
-                        
-                    product_img = product_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                    
-                    # Center paste
-                    x = (width - new_w) // 2
-                    y = 150 # Top margin
-                    img.paste(product_img, (x, y))
-            except Exception as e:
-                print(f"Image error: {e}")
-
-        # 3. النصوص
-        font_title = load_arabic_font(50)
-        font_price = load_arabic_font(60)
-        font_store = load_arabic_font(40)
+        # شريط علوي ملون
+        draw.rectangle((0, 0, width, 100), fill=accent_color)
         
-        # حاوية النص في الأسفل
-        draw.rectangle((0, 780, width, height), fill='#F8F9FA')
-        draw.line((0, 780, width, 780), fill='#DEE2E6', width=2)
+        # اسم المتجر في الأعلى
+        font_store = load_arabic_font(45)
+        store_text = process_text(store_name or "عرض خاص")
+        draw.text((width//2, 50), store_text, font=font_store, fill='#FFFFFF', anchor="mm")
         
-        # العنوان
-        full_title = process_text(title)
-        # تقسيم بسيط اذا كان طويل جدا (يدوي لأنه textwrap لا يدعم العربي المشبك جيداً)
-        # هنا سنعتمد على سطر واحد أو سطرين ونقص الزائد
-        bbox = draw.textbbox((0, 0), full_title, font=font_title)
-        text_w = bbox[2] - bbox[0]
+        # العنوان الرئيسي
+        font_title = load_arabic_font(38)
+        title_text = process_text(title[:60] if title else "عرض مميز")
         
-        if text_w > 900:
-            # تقريب بسيط للسطرين (يمكن تحسينه لاحقاً)
-            split_idx = len(full_title) // 2
-            # محاولة الايجاد مسافة
-            space_idx = full_title.rfind(' ', 0, split_idx + 10)
-            if space_idx > 0:
-                 line1 = full_title[space_idx+1:] # Bidi reverses order usually, careful here
-                 # With Bidi, the string is reversed visually. 
-                 # Let's keep it simple: Just draw it centered. If it overflows, it overflows.
-                 # For robustness, let's just use the full title and let it scale or center.
-                 pass
-
-        # لضمان عدم وجود مشاكل تعقيد: نكتب العنوان في المنتصف
-        # Bidi text is rendered LTR logically but visually RTL.
-        # draw.text expects the bidi-processed string.
-        draw.text((width//2, 850), full_title, font=font_title, fill='black', anchor="mm")
+        # تقسيم العنوان إذا كان طويل
+        if len(title) > 30:
+            words = title.split()
+            mid = len(words) // 2
+            line1 = ' '.join(words[:mid])
+            line2 = ' '.join(words[mid:])
+            draw.text((width//2, 200), process_text(line1), font=font_title, fill='#FFFFFF', anchor="mm")
+            draw.text((width//2, 260), process_text(line2), font=font_title, fill='#FFFFFF', anchor="mm")
+        else:
+            draw.text((width//2, 230), title_text, font=font_title, fill='#FFFFFF', anchor="mm")
         
-        # السعر (يسار)
+        # السعر/الخصم في دائرة
         if price:
-            p_text = process_text(price)
-            draw.ellipse((80, 80, 250, 250), fill='#DC3545')
-            draw.text((165, 165), p_text, font=font_price, fill='white', anchor="mm")
+            font_price = load_arabic_font(55)
+            price_text = process_text(price)
             
-        # المتجر (تحت العنوان)
-        if store_name:
-            store_text = process_text(f"🛍️ {store_name}")
-            draw.text((width//2, 950), store_text, font=font_store, fill='#6C757D', anchor="mm")
-            
+            # دائرة خلف السعر
+            circle_x, circle_y = width//2, 380
+            circle_r = 80
+            draw.ellipse((circle_x-circle_r, circle_y-circle_r, 
+                         circle_x+circle_r, circle_y+circle_r), 
+                        fill=accent_color)
+            draw.text((circle_x, circle_y), price_text, font=font_price, fill='#FFFFFF', anchor="mm")
+        
+        # التصنيف في الأسفل
+        font_cat = load_arabic_font(28)
+        cat_text = process_text(category or "عروض")
+        draw.text((width//2, 520), cat_text, font=font_cat, fill='#888888', anchor="mm")
+        
+        # خط فاصل
+        draw.line((100, 550, width-100, 550), fill='#333333', width=2)
+        
+        # شعار صغير
+        draw.text((width//2, 575), "🎁 عروض المواقع", font=font_cat, fill='#666666', anchor="mm")
+        
+        # حفظ الصورة
         output = BytesIO()
-        img.save(output, format='JPEG', quality=90)
+        img.save(output, format='PNG', quality=95)
         output.seek(0)
         return output
-
+        
     except Exception as e:
-        print(f"Generator Loop Error: {e}")
+        print(f"❌ خطأ تصميم الصورة: {e}")
         return None
